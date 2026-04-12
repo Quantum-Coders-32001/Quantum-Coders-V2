@@ -14,6 +14,7 @@
 // Include common definitions from above.
 apply from: '../build.common.gradle'
 apply from: '../build.dependencies.gradle'
+apply plugin: 'dev.frozenmilk.sinister.sloth.load'
 
 android {
     namespace = 'org.firstinspires.ftc.teamcode'
@@ -23,6 +24,12 @@ android {
     }
 }
 
+repositories {
+    maven { url = "https://repo.dairy.foundation/releases" }      // ← add
+    maven { url = "https://repo.dairy.foundation/snapshots" }     // ← add
+}
+
 dependencies {
     implementation project(':FtcRobotController')
+    implementation("dev.frozenmilk.sinister:Sloth:0.2.4")        // ← add
 }
