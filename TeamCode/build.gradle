@@ -27,9 +27,13 @@ android {
 repositories {
     maven { url = "https://repo.dairy.foundation/releases" }      // ← add
     maven { url = "https://repo.dairy.foundation/snapshots" }     // ← add
+    maven { url = 'https://maven.brott.dev/' }
 }
 
 dependencies {
     implementation project(':FtcRobotController')
     implementation("dev.frozenmilk.sinister:Sloth:0.2.4")        // ← add
+    implementation "org.solverslib:core:0.3.4" // core
+    implementation "org.solverslib:pedroPathing:0.3.4" // pedroPathing
+    implementation 'com.acmerobotics.dashboard:dashboard:0.5.1'
 }
