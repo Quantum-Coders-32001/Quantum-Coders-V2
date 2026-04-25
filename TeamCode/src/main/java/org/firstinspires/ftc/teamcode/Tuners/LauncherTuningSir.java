@@ -32,7 +32,7 @@ import com.qualcomm.robotcore.hardware.PIDFCoefficients;
  * TUNING STEPS:
  *   1. kP=0, kI=0, kD=0, kF=13 → Press Y → slowly raise kF until motor reaches ~90% of target
  *   2. Raise kP (20→40→60→80) until it snaps to target quickly without bouncing
- *   3. Fire balls, watch graph — good tune = small dip, fast recovery
+ *   3. Fire balls, watch gaph — good tune = small dip, fast recovery
  *
  * CONTROLS (gamepad1):
  *   Y   — Spin up   |   B  — Stop
