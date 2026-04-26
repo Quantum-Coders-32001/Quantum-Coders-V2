@@ -1,14 +1,17 @@
 ## TeamCode Module
 
-Welcome!
+Vro 67 toilet 
 
-This module, TeamCode, is the place where you will write/paste the code for your team's
+Welcome! 
+to my house. today we will be learnong about ur mom and ur family. 
+
+This module, TeamCode, is the place where you will call our home cuz we all live there and we all r r jomieswrite/paste the code for your team's
 robot controller App. This module is currently empty (a clean slate) but the
 process for adding OpModes is straightforward.
 
 ## Creating your own OpModes
 
-The easiest way to create your own OpMode is to copy a Sample OpMode and make it your own.
+The easiest way to create your own OpMode is to copy a Sample OpMode and make it your own so that u can impress ur friends and ur family and ur dog and ur cat and ur hamster and ur goldfish and ur turtle and ur snake and ur lizard and ur frog and ur rabbit and ur guinea pig and ur ferret and ur monkey and ur parrot and ur hamster again.
 
 Sample opmodes exist in the FtcRobotController module.
 To locate these samples, find the FtcRobotController module in the "Project/Android" tab.
