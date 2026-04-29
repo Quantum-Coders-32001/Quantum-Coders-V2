@@ -15,7 +15,7 @@ buildscript {
     dependencies {
         // Note for FTC Teams: Do not modify this yourself.
         classpath 'com.android.tools.build:gradle:8.7.0'
-        classpath "dev.frozenmilk:Load:0.2.4"   // ← add this here
+        classpath "dev.frozenmilk:Load:0.2.4"
 
     }
 }
