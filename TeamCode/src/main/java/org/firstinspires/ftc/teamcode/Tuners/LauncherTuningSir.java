@@ -2,45 +2,122 @@ package org.firstinspires.ftc.teamcode.Tuners;
 
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
+import com.acmerobotics.dashboard.config.reflection.ReflectionConfig;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.hardware.DcMotor;
+import com.seattlesolvers.solverslib.hardware.motor.Motor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.seattlesolvers.solverslib.controller.PIDFController;
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
  * LAUNCHER PIDF TUNING OPMODE — SolversLib + FTC Dashboard
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * Hardware:
+ * HARDWARE:
  *   - 2x goBILDA 5000 Series 12VDC Brushed Motor (8mm REX® Pinion Shaft)
- *       Tested free-spin: ~5800 RPM | Encoder: 28 ticks/rev (no gearbox)
- *       Max ticks/sec ≈ 2707
- *   - 2x goBILDA 3614 Series Rhino Wheel (72mm, 30A Durometer)
+ *       Encoder: 28 ticks/rev (no gearbox) | Measured loaded max: 2460 ticks/sec
+ *   - 2x goBILDA 3614 Series Rhino Wheel (72mm diameter, 30A Durometer)
  *   - 4x Steel Flywheel (60mm, 115g, 551 g·cm² each) — total inertia: 2204 g·cm²
  *
- * HOW SolversLib PIDF WORKS HERE:
- *   - calculate(measuredVelocity, targetVelocity) runs full PIDF each loop
- *   - kF term: output += kF * setpoint (pure feedforward scaled to motor power)
- *   - Output is in [-1, 1] motor power range → fed directly into setPower()
- *   - Controller timestamps itself internally — loop time is accounted for automatically
+ * ⚠️  BEFORE YOU TUNE — READ THIS:
+ *   - Always tune on a FULL battery (13.0–13.8V). kF tuned at 12V will be wrong
+ *     at 13.5V. Voltage directly scales motor output. Be consistent every session.
+ *   - 28 ticks/rev is very coarse. Velocity readings will look noisy/steppy on the
+ *     graph — that is normal. Keep kD = 0 always. Derivative on 28 tick resolution
+ *     is pure noise amplification.
+ *   - Do NOT set TARGET_VELOCITY above 2300. Measured loaded max is 2460 ticks/sec.
+ *     Commanding above physical max causes permanent error → integral windup →
+ *     motor pegged at 100% power → runs hot, controller behaves erratically.
+ *   - FLOAT zero power behavior is intentional. BRAKE would fight the flywheel
+ *     inertia and stress the motor on stop.
  *
- * ⚠️  28 ticks/rev = coarse velocity readings. Keep kD = 0.
- *     Do NOT set TARGET_VELOCITY above ~2400 ticks/sec (hard max ~2707).
+ * ═══════════════════════════════════════════════════════════════════════════
+ * HOW SolversLib PIDF WORKS HERE
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * TUNING STEPS:
- *   1. kP=0, kI=0, kD=0, kF=0.00040 → Press Y
- *      Motor should reach ~70-80% of target speed on feedforward alone.
- *      Nudge kF until it lands close (kF = desired_power / target_velocity).
- *      Example: want 0.80 power at 1800 ticks/sec → kF = 0.80/1800 ≈ 0.00044
- *   2. Raise kP (try 0.0003 → 0.0006 → 0.001) until it snaps to target without oscillating
- *      Heavy flywheel inertia = you'll likely need higher kP than expected
- *   3. Fire balls, watch graph — good tune = small dip on contact, fast recovery (<0.3s)
- *   4. If steady-state error persists after kP, add tiny kI (0.00001 increments).
- *      Watch for windup — reset() clears it on each spin-up.
+ *   calculate(measuredVelocity, targetVelocity) runs every loop and returns
+ *   a motor power value in [-1, 1]. You call setPower() with that value.
+ *   This is different from SDK's setVelocity() — you are fully in control.
  *
- * CONTROLS (gamepad1):
- *   Y  — Spin up  |  B  — Stop
+ *   kF (Feedforward) — Most important. Get this right first.
+ *       output += kF * targetVelocity
+ *       Formula: kF = desired_power / target_velocity
+ *       Example: 0.82 power at 1800 ticks/sec → kF = 0.82/1800 = 0.000456
+ *
+ *   kP (Proportional) — Corrects remaining error after kF.
+ *       Too low = slow recovery. Too high = oscillation.
+ *
+ *   kI (Integral) — Fixes persistent steady-state error kP can't close.
+ *       Use tiny values only. reset() clears windup on spin-up.
+ *
+ *   kD (Derivative) — DO NOT USE. 28 ticks/rev = pure noise.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * SETUP
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ *   1. Charge battery to full (13.0V+).
+ *   2. Connect to robot Wi-Fi
+ *   3. Open http://192.168.43.1:8080/dash
+ *   4. Run this OpMode
+ *   5. Graph: targetVelocity, rightVelocity, leftVelocity
+ *   6. Variable Configuration panel → find "LauncherTuningSir"
+ *      ⚠️  After typing a new value, press ENTER to commit it.
+ *          Verify the kP/kI/kD/kF telemetry line updates — if it does,
+ *          the gains are live. If not, something is wrong with @Config.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TUNING PROCEDURE — FOLLOW IN ORDER
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ *   STEP 1 — TUNE kF FIRST
+ *   ─────────────────────────────────────────────────────────
+ *   Set: kP=0, kI=0, kD=0, kF=0.00034, TARGET_VELOCITY=1800
+ *   Press Y. Watch where motor settles. Read rightPower from telemetry.
+ *   Recalculate: kF = rightPower / actual_settled_velocity
+ *   Goal: settle within ~150 ticks/sec BELOW target on kF alone.
+ *   kF should undershot slightly — kP closes the rest.
+ *   Press B between each adjustment. Let flywheel fully stop before Y again.
+ *
+ *   STEP 2 — TUNE kP
+ *   ─────────────────────────────────────────────────────────
+ *   Start kP=0.0003. Raise in steps: 0.0003→0.0006→0.0009→0.0012
+ *   Want: fast snap to target, flat line, no oscillation.
+ *   Too high kP: velocity bounces above/below target.
+ *   Too low kP: slow lazy climb, never quite settles.
+ *
+ *   STEP 3 — TEST UNDER LOAD
+ *   ─────────────────────────────────────────────────────────
+ *   Press ball against Rhino wheels. Watch dip and recovery.
+ *   Good: dip <200 ticks/sec, recovery <0.3s, no oscillation after.
+ *   Deep dip + slow recovery → raise kP
+ *   Oscillation after recovery → lower kP, recheck kF
+ *
+ *   STEP 4 — ADD kI ONLY IF NEEDED
+ *   ─────────────────────────────────────────────────────────
+ *   Persistent gap after Steps 1-3? Add kI: start 0.000005, max ~0.00003.
+ *   Windup sign: power keeps climbing after reaching target → kI too high.
+ *
+ *   STEP 5 — REPEAT AT MATCH VELOCITY
+ *   ─────────────────────────────────────────────────────────
+ *   Use LB/LT to set match TARGET_VELOCITY. Re-verify tune holds there.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * OPTIONAL — SquIDF INSTEAD OF PIDF
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ *   If spin-up consistently overshoots, try SquIDFController (square-root PIDF).
+ *   Smoother spin-up — √(error) dampens aggressive corrections at large error.
+ *   Import: com.seattlesolvers.solverslib.controller.SquIDFController
+ *   Drop-in replacement — same calculate(measured, target) API.
+ *   kP values will need to be higher since √(e) < e for errors > 1.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * CONTROLS (gamepad1)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *   Y  — Spin up    |  B  — Stop
  *   LB — Target +STEP  |  LT — Target -STEP
  */
 
@@ -48,14 +125,16 @@ import com.seattlesolvers.solverslib.controller.PIDFController;
 @TeleOp(name = "Launcher PIDF Tuner", group = "Tuning")
 public class LauncherTuningSir extends OpMode {
 
-    // Edit live in FTC Dashboard "Variable Configuration" panel
-    public static double kP = 0.0005;
+    public static double kP = 0.0;
     public static double kI = 0.0;
-    public static double kD = 0.0;     // Keep 0 — 28 tick/rev makes derivative useless
-    public static double kF = 0.00044; // kF * targetVelocity ≈ base motor power
+    public static double kD = 0.0;
+    public static double kF = 0.00034; // Lowered — previous value was overshooting
 
-    public static double TARGET_VELOCITY = 1800; // ticks/sec — do NOT exceed ~2400
+    public static double TARGET_VELOCITY = 1800;
     public static double STEP            = 50;
+
+    private static final double MAX_TICKS_SEC  = 2460;
+    private static final double MAX_SAFE_TARGET = 2300;
 
     private DcMotorEx launcherRight, launcherLeft;
     private PIDFController pidfRight, pidfLeft;
@@ -67,13 +146,17 @@ public class LauncherTuningSir extends OpMode {
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
 
+        // Explicitly register this class with Dashboard so Variable Config panel picks it up
+        FtcDashboard.getInstance().withConfigRoot(config ->
+                config.putVariable(getClass().getSimpleName(),
+                        ReflectionConfig.createVariableFromClass(LauncherTuningSir.class)));
+
         launcherRight = hardwareMap.get(DcMotorEx.class, "launch");
         launcherLeft  = hardwareMap.get(DcMotorEx.class, "launch1");
 
         launcherRight.setDirection(DcMotor.Direction.FORWARD);
         launcherLeft.setDirection(DcMotor.Direction.REVERSE);
 
-        // RUN_WITHOUT_ENCODER — we control power directly, encoder still reads velocity
         launcherRight.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         launcherLeft.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
@@ -84,13 +167,13 @@ public class LauncherTuningSir extends OpMode {
         pidfLeft  = new PIDFController(kP, kI, kD, kF);
 
         telemetry.addData("Status", "Ready. Y=spin up | B=stop | LB/LT=adjust target");
-        telemetry.addData("Max safe target", "~2400 ticks/sec (hard max ~2707)");
+        telemetry.addData("Max safe target", MAX_SAFE_TARGET + " ticks/sec (loaded max " + MAX_TICKS_SEC + ")");
+        telemetry.addData("⚠ Config check", "Verify kP/kI/kD/kF line updates when you change values in Dashboard");
         telemetry.update();
     }
 
     @Override
     public void loop() {
-        // Push dashboard gain changes into controllers live every loop
         pidfRight.setPIDF(kP, kI, kD, kF);
         pidfLeft.setPIDF(kP, kI, kD, kF);
 
@@ -99,17 +182,17 @@ public class LauncherTuningSir extends OpMode {
         boolean lb = gamepad1.left_bumper;
         boolean lt = gamepad1.left_trigger > 0.1;
 
-        if (y  && !lastY) {
+        if (y && !lastY) {
             running = true;
-            pidfRight.reset(); // Clear integral windup on every spin-up
+            pidfRight.reset();
             pidfLeft.reset();
         }
-        if (b  && !lastB) {
+        if (b && !lastB) {
             running = false;
             launcherRight.setPower(0);
             launcherLeft.setPower(0);
         }
-        if (lb && !lastLB) TARGET_VELOCITY = Math.min(TARGET_VELOCITY + STEP, 2400);
+        if (lb && !lastLB) TARGET_VELOCITY = Math.min(TARGET_VELOCITY + STEP, MAX_SAFE_TARGET);
         if (lt && !lastLT) TARGET_VELOCITY = Math.max(TARGET_VELOCITY - STEP, 0);
 
         lastY = y; lastB = b; lastLB = lb; lastLT = lt;
@@ -118,11 +201,9 @@ public class LauncherTuningSir extends OpMode {
         double leftVelocity  = launcherLeft.getVelocity();
 
         if (running) {
-            // calculate(measuredValue, setpoint) — correct SolversLib API pattern
             double rightPower = pidfRight.calculate(rightVelocity, TARGET_VELOCITY);
-            double leftPower  = pidfLeft.calculate(leftVelocity,  TARGET_VELOCITY);
+            double leftPower  = pidfLeft.calculate(leftVelocity,   TARGET_VELOCITY);
 
-            // Safety clamp — flywheel should only ever spin forward
             rightPower = Math.max(0, Math.min(1, rightPower));
             leftPower  = Math.max(0, Math.min(1, leftPower));
 
@@ -133,7 +214,6 @@ public class LauncherTuningSir extends OpMode {
             telemetry.addData("leftPower",  leftPower);
         }
 
-        // Graph targetVelocity + rightVelocity + leftVelocity in Dashboard
         telemetry.addData("status",         running ? "RUNNING" : "STOPPED");
         telemetry.addData("targetVelocity", TARGET_VELOCITY);
         telemetry.addData("rightVelocity",  rightVelocity);
