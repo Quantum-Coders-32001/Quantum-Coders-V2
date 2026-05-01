@@ -4,15 +4,20 @@ import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.config.reflection.ReflectionConfig;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.seattlesolvers.solverslib.hardware.motor.Motor;
+import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.seattlesolvers.solverslib.controller.PIDFController;
+import com.seattlesolvers.solverslib.gamepad.GamepadEx;
+import com.seattlesolvers.solverslib.gamepad.GamepadKeys;
+import com.seattlesolvers.solverslib.hardware.motors.Motor;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * LAUNCHER PIDF TUNING OPMODE — SolversLib + FTC Dashboard
+ * read me FIRST
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * HARDWARE:
@@ -74,11 +79,11 @@ import com.seattlesolvers.solverslib.controller.PIDFController;
  *
  *   STEP 1 — TUNE kF FIRST
  *   ─────────────────────────────────────────────────────────
- *   Set: kP=0, kI=0, kD=0, kF=0.00034, TARGET_VELOCITY=1800
+ *   Set: kP=0, kI=0, kD=0, kF=0.00038, TARGET_VELOCITY=1800
  *   Press Y. Watch where motor settles. Read rightPower from telemetry.
  *   Recalculate: kF = rightPower / actual_settled_velocity
  *   Goal: settle within ~150 ticks/sec BELOW target on kF alone.
- *   kF should undershot slightly — kP closes the rest.
+ *   kF should undershoot slightly — kP closes the rest.
  *   Press B between each adjustment. Let flywheel fully stop before Y again.
  *
  *   STEP 2 — TUNE kP
@@ -117,24 +122,30 @@ import com.seattlesolvers.solverslib.controller.PIDFController;
  * ═══════════════════════════════════════════════════════════════════════════
  * CONTROLS (gamepad1)
  * ═══════════════════════════════════════════════════════════════════════════
- *   Y  — Spin up    |  B  — Stop
- *   LB — Target +STEP  |  LT — Target -STEP
+ *   Y  — Spin up launcher    |  B  — Stop launcher
+ *   LB — Target +STEP        |  LT — Target -STEP
+ *   A  — Toggle intake + feeder
  */
 
 @Config
+@Disabled
 @TeleOp(name = "Launcher PIDF Tuner", group = "Tuning")
-public class LauncherTuningSir extends OpMode {
+public class LauncherTuning extends OpMode {
 
     public static double kP = 0.0;
     public static double kI = 0.0;
     public static double kD = 0.0;
-    public static double kF = 0.00034; // Lowered — previous value was overshooting
+    public static double kF = 0.00038;
 
     public static double TARGET_VELOCITY = 1800;
     public static double STEP            = 50;
 
-    private static final double MAX_TICKS_SEC  = 2460;
+    private static final double MAX_TICKS_SEC   = 2460;
     private static final double MAX_SAFE_TARGET = 2300;
+
+    private Motor intake, feeder;
+    private GamepadEx gamepadEx;
+    private boolean intakeRunning = false;
 
     private DcMotorEx launcherRight, launcherLeft;
     private PIDFController pidfRight, pidfLeft;
@@ -146,27 +157,32 @@ public class LauncherTuningSir extends OpMode {
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
 
-        // Explicitly register this class with Dashboard so Variable Config panel picks it up
         FtcDashboard.getInstance().withConfigRoot(config ->
                 config.putVariable(getClass().getSimpleName(),
                         ReflectionConfig.createVariableFromClass(LauncherTuningSir.class)));
 
+        gamepadEx = new GamepadEx(gamepad1);
+
+        intake = new Motor(hardwareMap, "intake");
+        feeder = new Motor(hardwareMap, "feeder");
+        intake.setRunMode(Motor.RunMode.RawPower);
+        feeder.setRunMode(Motor.RunMode.RawPower);
+        intake.setZeroPowerBehavior(Motor.ZeroPowerBehavior.BRAKE);
+        feeder.setZeroPowerBehavior(Motor.ZeroPowerBehavior.BRAKE);
+
         launcherRight = hardwareMap.get(DcMotorEx.class, "launch");
         launcherLeft  = hardwareMap.get(DcMotorEx.class, "launch1");
-
-        launcherRight.setDirection(DcMotor.Direction.FORWARD);
-        launcherLeft.setDirection(DcMotor.Direction.REVERSE);
-
+        launcherRight.setDirection(DcMotor.Direction.REVERSE);
+        launcherLeft.setDirection(DcMotor.Direction.FORWARD);
         launcherRight.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         launcherLeft.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-
         launcherRight.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         launcherLeft.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
         pidfRight = new PIDFController(kP, kI, kD, kF);
         pidfLeft  = new PIDFController(kP, kI, kD, kF);
 
-        telemetry.addData("Status", "Ready. Y=spin up | B=stop | LB/LT=adjust target");
+        telemetry.addData("Status", "Ready. Y=spin up | B=stop | LB/LT=adjust target | A=toggle intake");
         telemetry.addData("Max safe target", MAX_SAFE_TARGET + " ticks/sec (loaded max " + MAX_TICKS_SEC + ")");
         telemetry.addData("⚠ Config check", "Verify kP/kI/kD/kF line updates when you change values in Dashboard");
         telemetry.update();
@@ -176,6 +192,21 @@ public class LauncherTuningSir extends OpMode {
     public void loop() {
         pidfRight.setPIDF(kP, kI, kD, kF);
         pidfLeft.setPIDF(kP, kI, kD, kF);
+
+        gamepadEx.readButtons();
+
+        intake.set(1);
+
+        if (gamepadEx.wasJustPressed(GamepadKeys.Button.A)) {
+            intakeRunning = !intakeRunning;
+            if (intakeRunning) {
+
+                feeder.set(1);
+            } else {
+
+                feeder.set(-0.3);
+            }
+        }
 
         boolean y  = gamepad1.y;
         boolean b  = gamepad1.b;
@@ -214,6 +245,7 @@ public class LauncherTuningSir extends OpMode {
             telemetry.addData("leftPower",  leftPower);
         }
 
+        telemetry.addData("intake",         intakeRunning ? "RUNNING" : "STOPPED");
         telemetry.addData("status",         running ? "RUNNING" : "STOPPED");
         telemetry.addData("targetVelocity", TARGET_VELOCITY);
         telemetry.addData("rightVelocity",  rightVelocity);
@@ -226,6 +258,8 @@ public class LauncherTuningSir extends OpMode {
 
     @Override
     public void stop() {
+        intake.set(0);
+        feeder.set(0);
         launcherRight.setPower(0);
         launcherLeft.setPower(0);
     }
