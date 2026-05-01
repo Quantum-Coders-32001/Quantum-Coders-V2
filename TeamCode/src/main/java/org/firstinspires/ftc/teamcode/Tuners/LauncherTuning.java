@@ -159,7 +159,7 @@ public class LauncherTuning extends OpMode {
 
         FtcDashboard.getInstance().withConfigRoot(config ->
                 config.putVariable(getClass().getSimpleName(),
-                        ReflectionConfig.createVariableFromClass(LauncherTuningSir.class)));
+                        ReflectionConfig.createVariableFromClass(LauncherTuning.class)));
 
         gamepadEx = new GamepadEx(gamepad1);
 
