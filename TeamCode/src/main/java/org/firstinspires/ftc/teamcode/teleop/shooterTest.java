@@ -8,32 +8,24 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.Servo;
 
-@TeleOp(name = "dtTest", group = "Teleop")
-public class drivetrainTest extends OpMode {
+@TeleOp(name = "LAUNCHER ONLY", group = "Teleop")
+public class shooterTest extends OpMode {
 
-    // ===== LAUNCHER CONSTANTS =====
     final double LAUNCHER_TARGET_VELOCITY = 1200;
     final double LAUNCHER_MAX_VELOCITY    = 6000;
     final double LAUNCHER_MIN_ADJUST      = 0;
     final double LAUNCHER_STEP            = 50;
-    final double VELOCITY_TOLERANCE       = 75;
+    final double VELOCITY_TOLERANCE       = 20;
 
-    // ===== SERVO CONSTANTS =====
-    final double SERVO_SPEED    = 0.003;
+    final double SERVO_SPEED    = 0.003;  // position units per loop — lower = slower/less sensitive
     final double SERVO_DEADBAND = 0.08;
-    final double SERVO_MIN      = 0.0;
-    final double SERVO_MAX      = 1.0;
-    final double SERVO_START    = 0.5;
+    final double SERVO_MIN      = 0.0;    // 0°
+    final double SERVO_MAX      = 1.0;    // 300° (GoBilda standard)
+    final double SERVO_START    = 0.5;    // start at 150°
 
-    // ===== DRIVETRAIN =====
-    private DcMotor leftFrontDrive, rightFrontDrive, leftBackDrive, rightBackDrive;
-
-    // ===== INTAKE / FEEDER =====
-    private DcMotor intake, feeder;
-
-    // ===== LAUNCHER =====
     private DcMotorEx launcherRight, launcherLeft;
     private Servo tiltServo;
+    private DcMotor intake, feeder;
 
     private enum LaunchState { IDLE, SPIN_UP, LAUNCH }
     private LaunchState launchState = LaunchState.IDLE;
@@ -44,42 +36,25 @@ public class drivetrainTest extends OpMode {
 
     @Override
     public void init() {
-        // Drivetrain
-        leftFrontDrive  = hardwareMap.get(DcMotor.class, "lf");
-        rightFrontDrive = hardwareMap.get(DcMotor.class, "rf");
-        leftBackDrive   = hardwareMap.get(DcMotor.class, "lb");
-        rightBackDrive  = hardwareMap.get(DcMotor.class, "rb");
-
-        leftFrontDrive.setDirection(DcMotor.Direction.REVERSE);
-        rightFrontDrive.setDirection(DcMotor.Direction.FORWARD);
-        leftBackDrive.setDirection(DcMotor.Direction.REVERSE);
-        rightBackDrive.setDirection(DcMotor.Direction.FORWARD);
-
-        leftFrontDrive.setZeroPowerBehavior(BRAKE);
-        rightFrontDrive.setZeroPowerBehavior(BRAKE);
-        leftBackDrive.setZeroPowerBehavior(BRAKE);
-        rightBackDrive.setZeroPowerBehavior(BRAKE);
-
-        // Intake / Feeder
-        intake  = hardwareMap.get(DcMotor.class, "intake");
-        feeder  = hardwareMap.get(DcMotor.class, "feeder");
-        intake.setZeroPowerBehavior(BRAKE);
-        feeder.setZeroPowerBehavior(BRAKE);
-
-        // Launcher
         launcherRight = hardwareMap.get(DcMotorEx.class, "launch");
         launcherLeft  = hardwareMap.get(DcMotorEx.class, "launch1");
+        tiltServo     = hardwareMap.get(Servo.class, "tilt");
 
         launcherRight.setDirection(DcMotor.Direction.REVERSE);
         launcherLeft.setDirection(DcMotor.Direction.FORWARD);
+
         launcherRight.setZeroPowerBehavior(BRAKE);
         launcherLeft.setZeroPowerBehavior(BRAKE);
+
         launcherRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         launcherLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
-        // Tilt Servo
-        tiltServo = hardwareMap.get(Servo.class, "tilt");
         tiltServo.setPosition(servoPosition);
+
+        intake = hardwareMap.get(DcMotor.class, "intake");
+        feeder = hardwareMap.get(DcMotor.class, "feeder");
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        feeder.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         telemetry.addData("Status", "Initialized");
     }
@@ -87,30 +62,23 @@ public class drivetrainTest extends OpMode {
     @Override
     public void loop() {
 
-        // ===== DRIVETRAIN (gamepad1 sticks) =====
-        mecanumDrive(-gamepad1.left_stick_y, gamepad1.left_stick_x, gamepad1.right_stick_x);
-
-        // ===== INTAKE / FEEDER (gamepad2) =====
-        intake.setPower(gamepad2.a ? 1.0 : 0.0);
-        feeder.setPower(gamepad2.x ? 1.0 : 0.0);
-
-        // ===== TILT SERVO (gamepad2 left stick Y) =====
-        double stick = -gamepad2.left_stick_y;
+        // ===== TILT SERVO (gamepad1 left stick Y, low sensitivity) =====
+        double stick = -gamepad1.left_stick_y; // positive = up
         if (Math.abs(stick) > SERVO_DEADBAND) {
             servoPosition += stick * SERVO_SPEED;
             servoPosition = Math.max(SERVO_MIN, Math.min(SERVO_MAX, servoPosition));
             tiltServo.setPosition(servoPosition);
         }
 
-        // ===== LAUNCHER STATE MACHINE (gamepad2 face buttons) =====
+        // ===== LAUNCHER STATE MACHINE =====
         switch (launchState) {
             case IDLE:
                 setLauncherVelocity(0);
-                if (gamepad2.y) {
+                if (gamepad1.y) {
                     launcherTargetVelocity = LAUNCHER_TARGET_VELOCITY;
                     setLauncherVelocity(launcherTargetVelocity);
                     launchState = LaunchState.SPIN_UP;
-                } else if (gamepad2.right_bumper) {
+                } else if (gamepad1.x) {
                     launcherTargetVelocity = 1500;
                     setLauncherVelocity(launcherTargetVelocity);
                     launchState = LaunchState.SPIN_UP;
@@ -122,7 +90,7 @@ public class drivetrainTest extends OpMode {
                 if (Math.abs(launcherRight.getVelocity() - launcherTargetVelocity) < VELOCITY_TOLERANCE) {
                     launchState = LaunchState.LAUNCH;
                 }
-                if (gamepad2.b && !gamepad2.y && !gamepad2.right_bumper) {
+                if (gamepad1.b && !gamepad1.y && !gamepad1.x) {
                     setLauncherVelocity(0);
                     launchState = LaunchState.IDLE;
                 }
@@ -130,15 +98,15 @@ public class drivetrainTest extends OpMode {
 
             case LAUNCH:
                 setLauncherVelocity(launcherTargetVelocity);
-                if (gamepad2.b && !gamepad2.y && !gamepad2.right_bumper) {
+                if (gamepad1.b && !gamepad1.y && !gamepad1.x) {
                     launchState = LaunchState.IDLE;
                 }
                 break;
         }
 
-        // ===== RPM ADJUST (gamepad2 LB = up, LT = down) =====
-        boolean lb = gamepad2.left_bumper;
-        boolean lt = gamepad2.left_trigger > 0.1;
+        // ===== RPM ADJUST (LB = up, LT = down) =====
+        boolean lb = gamepad1.left_bumper;
+        boolean lt = gamepad1.left_trigger > 0.1;
         if (lb && !lastLB) {
             launcherTargetVelocity = Math.min(launcherTargetVelocity + LAUNCHER_STEP, LAUNCHER_MAX_VELOCITY);
             if (launchState != LaunchState.IDLE) setLauncherVelocity(launcherTargetVelocity);
@@ -150,26 +118,35 @@ public class drivetrainTest extends OpMode {
         lastLB = lb;
         lastLT = lt;
 
-        // ===== TELEMETRY =====
-        telemetry.addData("Launch State",     launchState);
-        telemetry.addData("Target Velocity",  launcherTargetVelocity);
-        telemetry.addData("Actual Vel R",     launcherRight.getVelocity());
-        telemetry.addData("Actual Vel L",     launcherLeft.getVelocity());
-        telemetry.addData("At Speed",         Math.abs(launcherRight.getVelocity() - launcherTargetVelocity) < VELOCITY_TOLERANCE);
-        telemetry.addData("Servo Position",   String.format("%.3f  (%.1f°)", servoPosition, servoPosition * 300));
-        telemetry.update();
-    }
+        intake.setPower(1);
 
-    void mecanumDrive(double forward, double strafe, double rotate) {
-        double denominator = Math.max(Math.abs(forward) + Math.abs(strafe) + Math.abs(rotate), 1);
-        leftFrontDrive.setPower((forward + strafe + rotate) / denominator);
-        rightFrontDrive.setPower((forward - strafe - rotate) / denominator);
-        leftBackDrive.setPower((forward - strafe + rotate) / denominator);
-        rightBackDrive.setPower((forward + strafe - rotate) / denominator);
+        // ===== INTAKE / FEEDER CONTROLS =====
+        if (gamepad1.a) {
+            feeder.setPower(1);
+        } else {
+            feeder.setPower(-0.3);
+        }
+
+        // ===== TELEMETRY =====
+        telemetry.addData("Launch State", launchState);
+        telemetry.addData("Target Velocity", launcherTargetVelocity);
+        telemetry.addData("Actual Velocity R", launcherRight.getVelocity());
+        telemetry.addData("Actual Velocity L", launcherLeft.getVelocity());
+        telemetry.addData("At Speed", Math.abs(launcherRight.getVelocity() - launcherTargetVelocity) < VELOCITY_TOLERANCE);
+        telemetry.addData("Servo Position", String.format("%.3f  (%.1f°)", servoPosition, servoPosition * 300));
+        telemetry.addData("Intake/Feeder", gamepad1.a ? "ON" : "OFF");
+        telemetry.update();
     }
 
     private void setLauncherVelocity(double v) {
         launcherRight.setVelocity(v);
         launcherLeft.setVelocity(v);
+    }
+
+    @Override
+    public void stop() {
+        setLauncherVelocity(0);
+        intake.setPower(0);
+        feeder.setPower(0);
     }
 }
