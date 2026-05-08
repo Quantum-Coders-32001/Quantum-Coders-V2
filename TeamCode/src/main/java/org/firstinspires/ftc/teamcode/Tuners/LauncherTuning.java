@@ -128,7 +128,7 @@ import com.seattlesolvers.solverslib.hardware.motors.Motor;
  */
 
 @Config
-@Disabled
+
 @TeleOp(name = "Launcher PIDF Tuner", group = "Tuning")
 public class LauncherTuning extends OpMode {
 
@@ -137,7 +137,7 @@ public class LauncherTuning extends OpMode {
     public static double kD = 0.0;
     public static double kF = 0.00038;
 
-    public static double TARGET_VELOCITY = 1800;
+    public static double TARGET_VELOCITY = 2000;
     public static double STEP            = 50;
 
     private static final double MAX_TICKS_SEC   = 2460;
