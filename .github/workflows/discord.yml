@@ -1,27 +1,22 @@
 name: Discord Commit Embed
-
 on: push
-
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - uses: appleboy/discord-action@v1.0.0
-        with:
-          webhook_id: ${{ secrets.DISCORD_WEBHOOK_ID }}
-          webhook_token: ${{ secrets.DISCORD_WEBHOOK_TOKEN }}
-          message: |
-            {
-              "embeds": [
-                {
-                  "title": "New Commit",
-                  "description": "${{ github.event.head_commit.message }}",
-                  "color": 5814783,
-                  "fields": [
-                    { "name": "Author", "value": "${{ github.actor }}" },
-                    { "name": "Branch", "value": "${{ github.ref }}" }
-                  ],
-                  "timestamp": "${{ github.event.head_commit.timestamp }}"
-                }
-              ]
-            }
+      - name: Send Discord Embed
+        run: |
+          curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "New Commit",
+                "description": "${{ github.event.head_commit.message }}",
+                "color": 5814783,
+                "fields": [
+                  { "name": "Author", "value": "${{ github.actor }}" },
+                  { "name": "Branch", "value": "${{ github.ref }}" }
+                ],
+                "timestamp": "${{ github.event.head_commit.timestamp }}"
+              }]
+            }'
