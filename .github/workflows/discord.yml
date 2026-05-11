@@ -1,27 +1,456 @@
-name: Discord Commit Embed
-
-on: push
+name: Discord Notifications
+on:
+  push:
+  pull_request:
+    types: [opened, closed, reopened, ready_for_review, converted_to_draft, review_requested]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, closed, reopened, assigned, labeled]
+  issue_comment:
+    types: [created]
+  create:
+  delete:
+  release:
+    types: [published, prereleased]
+  fork:
+  watch:
+    types: [started]
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - uses: appleboy/discord-action@v1.0.0
-        with:
-          webhook_id: ${{ secrets.DISCORD_WEBHOOK_ID }}
-          webhook_token: ${{ secrets.DISCORD_WEBHOOK_TOKEN }}
-          message: |
-            {
-              "embeds": [
-                {
-                  "title": "New Commit",
-                  "description": "${{ github.event.head_commit.message }}",
-                  "color": 5814783,
-                  "fields": [
-                    { "name": "Author", "value": "${{ github.actor }}" },
-                    { "name": "Branch", "value": "${{ github.ref }}" }
-                  ],
-                  "timestamp": "${{ github.event.head_commit.timestamp }}"
-                }
-              ]
-            }
+
+      # ─── PUSH ───────────────────────────────────────────────
+      - name: Push Notification
+        if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'Merge')
+        run: |
+          MESSAGE=$(echo '${{ github.event.head_commit.message }}' | jq -Rs '.')
+          jq -n \
+            --argjson message "$MESSAGE" \
+            --arg author "${{ github.event.head_commit.author.name }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg url "${{ github.event.head_commit.url }}" \
+            --arg timestamp "${{ github.event.head_commit.timestamp }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: ("📦 New Commit on `" + $branch + "`"),
+                description: $message,
+                url: $url,
+                color: 5814783,
+                fields: [
+                  { name: "👤 Author", value: $author, inline: true },
+                  { name: "🌿 Branch", value: $branch, inline: true },
+                  { name: "📁 Repo", value: $repo, inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("GitHub Push • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── MERGE ──────────────────────────────────────────────
+      - name: Merge Notification
+        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Merge')
+        run: |
+          MESSAGE=$(echo '${{ github.event.head_commit.message }}' | jq -Rs '.')
+          jq -n \
+            --argjson message "$MESSAGE" \
+            --arg actor "${{ github.actor }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg timestamp "${{ github.event.head_commit.timestamp }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: ("🔀 Branch Merged into `" + $branch + "`"),
+                description: $message,
+                color: 9699539,
+                fields: [
+                  { name: "👤 Merged By", value: $actor, inline: true },
+                  { name: "🎯 Target Branch", value: $branch, inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("GitHub Merge • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── PR OPENED ──────────────────────────────────────────
+      - name: PR Opened
+        if: github.event_name == 'pull_request' && github.event.action == 'opened'
+        run: |
+          BODY=$(echo '${{ github.event.pull_request.body }}' | jq -Rs '.')
+          jq -n \
+            --arg title "${{ github.event.pull_request.title }}" \
+            --argjson body "$BODY" \
+            --arg url "${{ github.event.pull_request.html_url }}" \
+            --arg author "${{ github.event.pull_request.user.login }}" \
+            --arg from "${{ github.event.pull_request.head.ref }}" \
+            --arg into "${{ github.event.pull_request.base.ref }}" \
+            --arg additions "${{ github.event.pull_request.additions }}" \
+            --arg deletions "${{ github.event.pull_request.deletions }}" \
+            --arg files "${{ github.event.pull_request.changed_files }}" \
+            --arg number "${{ github.event.pull_request.number }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${{ github.event.pull_request.created_at }}" \
+            '{
+              embeds: [{
+                title: ("🔃 PR Opened: " + $title),
+                description: $body,
+                url: $url,
+                color: 3066993,
+                fields: [
+                  { name: "👤 Author", value: $author, inline: true },
+                  { name: "🌿 From", value: $from, inline: true },
+                  { name: "🎯 Into", value: $into, inline: true },
+                  { name: "📊 Changes", value: ("+" + $additions + " / -" + $deletions), inline: true },
+                  { name: "📁 Files Changed", value: $files, inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("PR #" + $number + " • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── PR CLOSED / MERGED ─────────────────────────────────
+      - name: PR Closed or Merged
+        if: github.event_name == 'pull_request' && github.event.action == 'closed'
+        run: |
+          MERGED="${{ github.event.pull_request.merged }}"
+          if [ "$MERGED" = "true" ]; then
+            TITLE="✅ PR Merged: ${{ github.event.pull_request.title }}"
+            COLOR=5763719
+            STATUS="Merged"
+          else
+            TITLE="❌ PR Closed: ${{ github.event.pull_request.title }}"
+            COLOR=15548997
+            STATUS="Closed without merge"
+          fi
+          jq -n \
+            --arg title "$TITLE" \
+            --arg url "${{ github.event.pull_request.html_url }}" \
+            --argjson color "$COLOR" \
+            --arg author "${{ github.event.pull_request.user.login }}" \
+            --arg status "$STATUS" \
+            --arg from "${{ github.event.pull_request.head.ref }}" \
+            --arg into "${{ github.event.pull_request.base.ref }}" \
+            --arg additions "${{ github.event.pull_request.additions }}" \
+            --arg deletions "${{ github.event.pull_request.deletions }}" \
+            --arg files "${{ github.event.pull_request.changed_files }}" \
+            --arg number "${{ github.event.pull_request.number }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${{ github.event.pull_request.closed_at }}" \
+            '{
+              embeds: [{
+                title: $title,
+                url: $url,
+                color: $color,
+                fields: [
+                  { name: "👤 Author", value: $author, inline: true },
+                  { name: "🔀 Status", value: $status, inline: true },
+                  { name: "🌿 From", value: $from, inline: true },
+                  { name: "🎯 Into", value: $into, inline: true },
+                  { name: "📊 Changes", value: ("+" + $additions + " / -" + $deletions), inline: true },
+                  { name: "📁 Files", value: $files, inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("PR #" + $number + " • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── PR REOPENED ────────────────────────────────────────
+      - name: PR Reopened
+        if: github.event_name == 'pull_request' && github.event.action == 'reopened'
+        run: |
+          jq -n \
+            --arg title "${{ github.event.pull_request.title }}" \
+            --arg url "${{ github.event.pull_request.html_url }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg from "${{ github.event.pull_request.head.ref }}" \
+            --arg into "${{ github.event.pull_request.base.ref }}" \
+            --arg number "${{ github.event.pull_request.number }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: ("🔄 PR Reopened: " + $title),
+                url: $url,
+                color: 16776960,
+                fields: [
+                  { name: "👤 Reopened By", value: $actor, inline: true },
+                  { name: "🌿 From", value: $from, inline: true },
+                  { name: "🎯 Into", value: $into, inline: true }
+                ],
+                footer: { text: ("PR #" + $number + " • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── PR REVIEW SUBMITTED ────────────────────────────────
+      - name: PR Review Submitted
+        if: github.event_name == 'pull_request_review'
+        run: |
+          STATE="${{ github.event.review.state }}"
+          if [ "$STATE" = "approved" ]; then
+            TITLE="✅ PR Approved"
+            COLOR=5763719
+          elif [ "$STATE" = "changes_requested" ]; then
+            TITLE="🔁 Changes Requested"
+            COLOR=15548997
+          else
+            TITLE="💬 PR Review Comment"
+            COLOR=3447003
+          fi
+          BODY=$(echo '${{ github.event.review.body }}' | jq -Rs '.')
+          jq -n \
+            --arg title "$TITLE" \
+            --argjson color "$COLOR" \
+            --argjson body "$BODY" \
+            --arg pr_title "${{ github.event.pull_request.title }}" \
+            --arg url "${{ github.event.review.html_url }}" \
+            --arg reviewer "${{ github.event.review.user.login }}" \
+            --arg number "${{ github.event.pull_request.number }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${{ github.event.review.submitted_at }}" \
+            '{
+              embeds: [{
+                title: ($title + ": " + $pr_title),
+                description: $body,
+                url: $url,
+                color: $color,
+                fields: [
+                  { name: "👤 Reviewer", value: $reviewer, inline: true },
+                  { name: "📋 PR", value: ("#" + $number), inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("PR Review • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── BRANCH CREATED ─────────────────────────────────────
+      - name: Branch Created
+        if: github.event_name == 'create' && github.event.ref_type == 'branch'
+        run: |
+          jq -n \
+            --arg branch "${{ github.event.ref }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: "🌿 New Branch Created",
+                color: 3447003,
+                fields: [
+                  { name: "🌿 Branch", value: $branch, inline: true },
+                  { name: "👤 Created By", value: $actor, inline: true },
+                  { name: "📁 Repo", value: $repo, inline: true }
+                ],
+                footer: { text: ("Branch Created • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── BRANCH DELETED ─────────────────────────────────────
+      - name: Branch Deleted
+        if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+        run: |
+          jq -n \
+            --arg branch "${{ github.event.ref }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: "🗑️ Branch Deleted",
+                color: 15548997,
+                fields: [
+                  { name: "🌿 Branch", value: $branch, inline: true },
+                  { name: "👤 Deleted By", value: $actor, inline: true }
+                ],
+                footer: { text: ("Branch Deleted • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── TAG CREATED ────────────────────────────────────────
+      - name: Tag Created
+        if: github.event_name == 'create' && github.event.ref_type == 'tag'
+        run: |
+          jq -n \
+            --arg tag "${{ github.event.ref }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: ("🏷️ New Tag Created: " + $tag),
+                color: 15844367,
+                fields: [
+                  { name: "🏷️ Tag", value: $tag, inline: true },
+                  { name: "👤 Created By", value: $actor, inline: true }
+                ],
+                footer: { text: ("Tag Created • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── RELEASE PUBLISHED ──────────────────────────────────
+      - name: Release Published
+        if: github.event_name == 'release' && github.event.action == 'published'
+        run: |
+          BODY=$(echo '${{ github.event.release.body }}' | jq -Rs '.')
+          jq -n \
+            --arg name "${{ github.event.release.name }}" \
+            --argjson body "$BODY" \
+            --arg url "${{ github.event.release.html_url }}" \
+            --arg tag "${{ github.event.release.tag_name }}" \
+            --arg author "${{ github.event.release.author.login }}" \
+            --arg prerelease "${{ github.event.release.prerelease }}" \
+            --arg timestamp "${{ github.event.release.published_at }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: ("🚀 New Release: " + $name),
+                description: $body,
+                url: $url,
+                color: 15844367,
+                fields: [
+                  { name: "🏷️ Tag", value: $tag, inline: true },
+                  { name: "👤 Author", value: $author, inline: true },
+                  { name: "📦 Prerelease", value: $prerelease, inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("Release • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── ISSUE OPENED ───────────────────────────────────────
+      - name: Issue Opened
+        if: github.event_name == 'issues' && github.event.action == 'opened'
+        run: |
+          BODY=$(echo '${{ github.event.issue.body }}' | jq -Rs '.')
+          jq -n \
+            --arg title "${{ github.event.issue.title }}" \
+            --argjson body "$BODY" \
+            --arg url "${{ github.event.issue.html_url }}" \
+            --arg author "${{ github.event.issue.user.login }}" \
+            --arg labels "${{ join(github.event.issue.labels.*.name, ', ') }}" \
+            --arg assignees "${{ join(github.event.issue.assignees.*.login, ', ') }}" \
+            --arg number "${{ github.event.issue.number }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${{ github.event.issue.created_at }}" \
+            '{
+              embeds: [{
+                title: ("🐛 New Issue: " + $title),
+                description: $body,
+                url: $url,
+                color: 15548997,
+                fields: [
+                  { name: "👤 Opened By", value: $author, inline: true },
+                  { name: "🏷️ Labels", value: (if $labels == "" then "None" else $labels end), inline: true },
+                  { name: "👥 Assignees", value: (if $assignees == "" then "None" else $assignees end), inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("Issue #" + $number + " • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── ISSUE CLOSED ───────────────────────────────────────
+      - name: Issue Closed
+        if: github.event_name == 'issues' && github.event.action == 'closed'
+        run: |
+          jq -n \
+            --arg title "${{ github.event.issue.title }}" \
+            --arg url "${{ github.event.issue.html_url }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg labels "${{ join(github.event.issue.labels.*.name, ', ') }}" \
+            --arg number "${{ github.event.issue.number }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${{ github.event.issue.closed_at }}" \
+            '{
+              embeds: [{
+                title: ("✅ Issue Closed: " + $title),
+                url: $url,
+                color: 5763719,
+                fields: [
+                  { name: "👤 Closed By", value: $actor, inline: true },
+                  { name: "🏷️ Labels", value: (if $labels == "" then "None" else $labels end), inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("Issue #" + $number + " • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── ISSUE COMMENT ──────────────────────────────────────
+      - name: Issue Comment
+        if: github.event_name == 'issue_comment' && github.event.action == 'created'
+        run: |
+          BODY=$(echo '${{ github.event.comment.body }}' | jq -Rs '.')
+          jq -n \
+            --arg issue_title "${{ github.event.issue.title }}" \
+            --argjson body "$BODY" \
+            --arg url "${{ github.event.comment.html_url }}" \
+            --arg commenter "${{ github.event.comment.user.login }}" \
+            --arg number "${{ github.event.issue.number }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${{ github.event.comment.created_at }}" \
+            '{
+              embeds: [{
+                title: ("💬 New Comment on: " + $issue_title),
+                description: $body,
+                url: $url,
+                color: 3447003,
+                fields: [
+                  { name: "👤 Commenter", value: $commenter, inline: true },
+                  { name: "📋 Issue", value: ("#" + $number), inline: true }
+                ],
+                timestamp: $timestamp,
+                footer: { text: ("Issue Comment • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── REPO FORKED ────────────────────────────────────────
+      - name: Repo Forked
+        if: github.event_name == 'fork'
+        run: |
+          jq -n \
+            --arg forked_by "${{ github.event.forkee.owner.login }}" \
+            --arg fork_url "${{ github.event.forkee.html_url }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: "🍴 Repo Forked!",
+                color: 15844367,
+                fields: [
+                  { name: "👤 Forked By", value: $forked_by, inline: true },
+                  { name: "🔗 Fork URL", value: $fork_url, inline: false }
+                ],
+                footer: { text: ("Fork • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-
+
+      # ─── REPO STARRED ───────────────────────────────────────
+      - name: Repo Starred
+        if: github.event_name == 'watch' && github.event.action == 'started'
+        run: |
+          jq -n \
+            --arg actor "${{ github.actor }}" \
+            --arg stars "${{ github.event.repository.stargazers_count }}" \
+            --arg repo "${{ github.repository }}" \
+            '{
+              embeds: [{
+                title: "⭐ Someone Starred the Repo!",
+                color: 15844367,
+                fields: [
+                  { name: "👤 Starred By", value: $actor, inline: true },
+                  { name: "⭐ Total Stars", value: $stars, inline: true }
+                ],
+                footer: { text: ("Star • " + $repo) }
+              }]
+            }' | curl -X POST "https://discord.com/api/webhooks/${{ secrets.DISCORD_WEBHOOK_ID }}/${{ secrets.DISCORD_WEBHOOK_TOKEN }}" \
+              -H "Content-Type: application/json" -d @-

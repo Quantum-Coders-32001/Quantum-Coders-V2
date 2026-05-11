@@ -22,6 +22,7 @@ buildscript {
 
 // This is now required because aapt2 has to be downloaded from the
 // google() repository beginning with version 3.2 of the Android Gradle Plugin
+// why r u reading ts
 allprojects {
     repositories {
         mavenCentral()
