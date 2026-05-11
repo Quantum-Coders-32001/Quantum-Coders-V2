@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.tuners;
+package org.firstinspires.ftc.teamcode.Tuners;
 
 import com.pedropathing.follower.Follower;
 import com.pedropathing.follower.FollowerConstants;
@@ -13,6 +13,11 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 public class Constants {
+    public static double kf = 0.0004;
+    public static double kp = 0.0014;
+
+
+
 
     public static MecanumConstants driveConstants = new MecanumConstants()
             .maxPower(1)
