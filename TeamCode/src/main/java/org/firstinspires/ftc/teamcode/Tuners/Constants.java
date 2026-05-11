@@ -15,6 +15,11 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 public class Constants {
 
+    public static double kP = 0.0014;
+    public static double kI = 0.0;
+    public static double kD = 0.0;
+    public static double kF = 0.0004;
+
     public static MecanumConstants driveConstants = new MecanumConstants()
             .maxPower(1)
             .rightFrontMotorName("rf")

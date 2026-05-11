@@ -4,7 +4,6 @@ import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.config.reflection.ReflectionConfig;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
@@ -25,6 +24,9 @@ import com.seattlesolvers.solverslib.hardware.motors.Motor;
  *       Encoder: 28 ticks/rev (no gearbox) | Measured loaded max: 2460 ticks/sec
  *   - 2x goBILDA 3614 Series Rhino Wheel (72mm diameter, 30A Durometer)
  *   - 4x Steel Flywheel (60mm, 115g, 551 g·cm² each) — total inertia: 2204 g·cm²
+ *
+ * NOTE: Only launch1 encoder is connected. Both PIDF controllers use
+ *       launcherLeft (launch1) velocity as feedback.
  *
  * ⚠️  BEFORE YOU TUNE — READ THIS:
  *   - Always tune on a FULL battery (13.0–13.8V). kF tuned at 12V will be wrong
@@ -67,8 +69,8 @@ import com.seattlesolvers.solverslib.hardware.motors.Motor;
  *   2. Connect to robot Wi-Fi
  *   3. Open http://192.168.43.1:8080/dash
  *   4. Run this OpMode
- *   5. Graph: targetVelocity, rightVelocity, leftVelocity
- *   6. Variable Configuration panel → find "LauncherTuningSir"
+ *   5. Graph: targetVelocity, velocity (launch1)
+ *   6. Variable Configuration panel → find "LauncherTuning"
  *      ⚠️  After typing a new value, press ENTER to commit it.
  *          Verify the kP/kI/kD/kF telemetry line updates — if it does,
  *          the gains are live. If not, something is wrong with @Config.
@@ -77,6 +79,7 @@ import com.seattlesolvers.solverslib.hardware.motors.Motor;
  * TUNING PROCEDURE — FOLLOW IN ORDER
  * ═══════════════════════════════════════════════════════════════════════════
  *
+ *   STEP 1 — TUNE kF FIRST
  *   STEP 1 — TUNE kF FIRST
  *   ─────────────────────────────────────────────────────────
  *   Set: kP=0, kI=0, kD=0, kF=0.00038, TARGET_VELOCITY=1800
@@ -128,7 +131,6 @@ import com.seattlesolvers.solverslib.hardware.motors.Motor;
  */
 
 @Config
-
 @TeleOp(name = "Launcher PIDF Tuner", group = "Tuning")
 public class LauncherTuning extends OpMode {
 
@@ -172,10 +174,8 @@ public class LauncherTuning extends OpMode {
 
         launcherRight = hardwareMap.get(DcMotorEx.class, "launch");
         launcherLeft  = hardwareMap.get(DcMotorEx.class, "launch1");
-        launcherRight.setDirection(DcMotor.Direction.REVERSE);
-        launcherLeft.setDirection(DcMotor.Direction.FORWARD);
-        launcherRight.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        launcherLeft.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        launcherRight.setDirection(DcMotor.Direction.FORWARD);
+        launcherLeft.setDirection(DcMotor.Direction.REVERSE);
         launcherRight.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         launcherLeft.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
@@ -184,7 +184,7 @@ public class LauncherTuning extends OpMode {
 
         telemetry.addData("Status", "Ready. Y=spin up | B=stop | LB/LT=adjust target | A=toggle intake");
         telemetry.addData("Max safe target", MAX_SAFE_TARGET + " ticks/sec (loaded max " + MAX_TICKS_SEC + ")");
-        telemetry.addData("⚠ Config check", "Verify kP/kI/kD/kF line updates when you change values in Dashboard");
+        telemetry.addData("Encoder", "Using launch1 only");
         telemetry.update();
     }
 
@@ -200,11 +200,9 @@ public class LauncherTuning extends OpMode {
         if (gamepadEx.wasJustPressed(GamepadKeys.Button.A)) {
             intakeRunning = !intakeRunning;
             if (intakeRunning) {
-
                 feeder.set(1);
             } else {
-
-                feeder.set(-0.3);
+                feeder.set(0);
             }
         }
 
@@ -228,12 +226,12 @@ public class LauncherTuning extends OpMode {
 
         lastY = y; lastB = b; lastLB = lb; lastLT = lt;
 
-        double rightVelocity = launcherRight.getVelocity();
-        double leftVelocity  = launcherLeft.getVelocity();
+        // Only launch1 has an encoder — use it as feedback for both controllers
+        double velocity = launcherRight.getVelocity();
 
         if (running) {
-            double rightPower = pidfRight.calculate(rightVelocity, TARGET_VELOCITY);
-            double leftPower  = pidfLeft.calculate(leftVelocity,   TARGET_VELOCITY);
+            double rightPower = pidfRight.calculate(velocity, TARGET_VELOCITY);
+            double leftPower  = pidfLeft.calculate(velocity,  TARGET_VELOCITY);
 
             rightPower = Math.max(0, Math.min(1, rightPower));
             leftPower  = Math.max(0, Math.min(1, leftPower));
@@ -248,10 +246,8 @@ public class LauncherTuning extends OpMode {
         telemetry.addData("intake",         intakeRunning ? "RUNNING" : "STOPPED");
         telemetry.addData("status",         running ? "RUNNING" : "STOPPED");
         telemetry.addData("targetVelocity", TARGET_VELOCITY);
-        telemetry.addData("rightVelocity",  rightVelocity);
-        telemetry.addData("leftVelocity",   leftVelocity);
-        telemetry.addData("rightError",     TARGET_VELOCITY - rightVelocity);
-        telemetry.addData("leftError",      TARGET_VELOCITY - leftVelocity);
+        telemetry.addData("velocity (launch)", velocity);
+        telemetry.addData("error",          TARGET_VELOCITY - velocity);
         telemetry.addData("kP/kI/kD/kF",   kP + " / " + kI + " / " + kD + " / " + kF);
         telemetry.update();
     }
