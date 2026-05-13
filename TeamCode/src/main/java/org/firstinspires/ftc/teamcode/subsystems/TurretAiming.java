@@ -20,9 +20,9 @@ public class TurretAiming {
     public static final double MAX_POWER        = 1.0;
 
     // PIDF gains
-    public static double KP = 0.02;
+    public static double KP = 0.0025;
     public static double KI = 0.000;
-    public static double KD = 0.001;
+    public static double KD = 0.004;
     public static double KF = 0.0;
     public static double KS = 0.2;
 
